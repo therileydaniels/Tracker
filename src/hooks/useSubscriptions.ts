@@ -2,22 +2,77 @@ import { useState, useEffect } from 'react';
 import { Subscription, SubscriptionFormData } from '@/types/subscription';
 import { calculateExpirationDate, getSubscriptionStatus } from '@/utils/dateUtils';
 import { useToast } from '@/hooks/use-toast';
-import { useLocalStorage } from './useLocalStorage';
-import { subscriptionTypes, durationOptions, sampleSubscriptions } from '@/data/sampleData';
+import { useAuth } from '@/contexts/AuthContext';
+import { supabase } from '@/integrations/supabase/client';
+import { subscriptionTypes, durationOptions } from '@/data/sampleData';
 
 export function useSubscriptions() {
-  const [subscriptions, setSubscriptions] = useLocalStorage<Subscription[]>('subtrackr-subscriptions', sampleSubscriptions);
-  const [loading, setLoading] = useState(false);
+  const [subscriptions, setSubscriptions] = useState<Subscription[]>([]);
+  const [loading, setLoading] = useState(true);
   const { toast } = useToast();
-  const [customTypes, setCustomTypes] = useLocalStorage<string[]>('subtrackr-custom-types', subscriptionTypes);
-  const [customDurations, setCustomDurations] = useLocalStorage<typeof durationOptions>('subtrackr-custom-durations', durationOptions);
+  const { user } = useAuth();
+  const [customTypes, setCustomTypes] = useState<string[]>(subscriptionTypes);
+  const [customDurations, setCustomDurations] = useState<typeof durationOptions>(durationOptions);
 
-  // Generate a simple ID for new subscriptions
-  const generateId = () => {
-    return Date.now().toString() + Math.random().toString(36).substr(2, 9);
+  // Fetch subscriptions from Supabase
+  const fetchSubscriptions = async () => {
+    if (!user) {
+      setSubscriptions([]);
+      setLoading(false);
+      return;
+    }
+
+    try {
+      setLoading(true);
+      const { data, error } = await supabase
+        .from('subscriptions')
+        .select('*')
+        .eq('user_id', user.id)
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
+
+      const formattedSubscriptions: Subscription[] = (data || []).map(sub => ({
+        id: sub.id,
+        clientName: sub.client_name,
+        planType: sub.plan_type,
+        cost: sub.cost,
+        notes: sub.notes || '',
+        duration: sub.duration,
+        customDuration: sub.custom_duration || undefined,
+        customDate: sub.custom_date ? new Date(sub.custom_date) : undefined,
+        startDate: new Date(sub.start_date),
+        expirationDate: sub.expiration_date ? new Date(sub.expiration_date) : new Date(),
+        status: sub.status as 'active' | 'expired' | 'expiring-soon'
+      }));
+
+      setSubscriptions(formattedSubscriptions);
+    } catch (error: any) {
+      toast({
+        title: "Error fetching subscriptions",
+        description: error.message,
+        variant: "destructive"
+      });
+    } finally {
+      setLoading(false);
+    }
   };
 
+  // Load subscriptions when user changes
+  useEffect(() => {
+    fetchSubscriptions();
+  }, [user]);
+
   const addSubscription = async (formData: SubscriptionFormData) => {
+    if (!user) {
+      toast({
+        title: "Authentication required",
+        description: "Please sign in to add subscriptions.",
+        variant: "destructive"
+      });
+      return null;
+    }
+
     try {
       const expirationDate = calculateExpirationDate(
         formData.startDate,
@@ -26,18 +81,40 @@ export function useSubscriptions() {
         formData.customDate
       );
 
-      const newSubscription: Subscription = {
-        id: generateId(),
-        clientName: formData.clientName,
-        planType: formData.planType,
-        cost: formData.cost,
+      const subscriptionData = {
+        user_id: user.id,
+        client_name: formData.clientName,
+        plan_type: formData.planType,
+        cost: formData.cost || 0,
         notes: formData.notes || '',
         duration: formData.duration,
-        customDuration: formData.customDuration,
-        customDate: formData.customDate,
-        startDate: formData.startDate,
-        expirationDate,
+        custom_duration: formData.customDuration || null,
+        custom_date: formData.customDate ? formData.customDate.toISOString().split('T')[0] : null,
+        start_date: formData.startDate.toISOString().split('T')[0],
+        expiration_date: expirationDate.toISOString().split('T')[0],
         status: getSubscriptionStatus(expirationDate)
+      };
+
+      const { data, error } = await supabase
+        .from('subscriptions')
+        .insert([subscriptionData])
+        .select()
+        .single();
+
+      if (error) throw error;
+
+      const newSubscription: Subscription = {
+        id: data.id,
+        clientName: data.client_name,
+        planType: data.plan_type,
+        cost: data.cost,
+        notes: data.notes || '',
+        duration: data.duration,
+        customDuration: data.custom_duration || undefined,
+        customDate: data.custom_date ? new Date(data.custom_date) : undefined,
+        startDate: new Date(data.start_date),
+        expirationDate: new Date(data.expiration_date),
+        status: data.status as 'active' | 'expired' | 'expiring-soon'
       };
 
       setSubscriptions(prev => [newSubscription, ...prev]);
@@ -58,6 +135,15 @@ export function useSubscriptions() {
   };
 
   const updateSubscription = async (id: string, formData: SubscriptionFormData) => {
+    if (!user) {
+      toast({
+        title: "Authentication required",
+        description: "Please sign in to update subscriptions.",
+        variant: "destructive"
+      });
+      return;
+    }
+
     try {
       const expirationDate = calculateExpirationDate(
         formData.startDate,
@@ -65,6 +151,27 @@ export function useSubscriptions() {
         formData.customDuration,
         formData.customDate
       );
+
+      const updateData = {
+        client_name: formData.clientName,
+        plan_type: formData.planType,
+        cost: formData.cost || 0,
+        notes: formData.notes || '',
+        duration: formData.duration,
+        custom_duration: formData.customDuration || null,
+        custom_date: formData.customDate ? formData.customDate.toISOString().split('T')[0] : null,
+        start_date: formData.startDate.toISOString().split('T')[0],
+        expiration_date: expirationDate.toISOString().split('T')[0],
+        status: getSubscriptionStatus(expirationDate)
+      };
+
+      const { error } = await supabase
+        .from('subscriptions')
+        .update(updateData)
+        .eq('id', id)
+        .eq('user_id', user.id);
+
+      if (error) throw error;
 
       setSubscriptions(prev => 
         prev.map(sub => 
@@ -93,7 +200,24 @@ export function useSubscriptions() {
   };
 
   const deleteSubscription = async (id: string) => {
+    if (!user) {
+      toast({
+        title: "Authentication required",
+        description: "Please sign in to delete subscriptions.",
+        variant: "destructive"
+      });
+      return;
+    }
+
     try {
+      const { error } = await supabase
+        .from('subscriptions')
+        .delete()
+        .eq('id', id)
+        .eq('user_id', user.id);
+
+      if (error) throw error;
+
       setSubscriptions(prev => prev.filter(sub => sub.id !== id));
       toast({
         title: "Subscription deleted",
@@ -129,8 +253,7 @@ export function useSubscriptions() {
   };
 
   const refetch = async () => {
-    // For local storage, no need to refetch
-    setLoading(false);
+    await fetchSubscriptions();
   };
 
   return {

@@ -3,11 +3,12 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Dialog, DialogContent } from '@/components/ui/dialog';
 import { useToast } from '@/hooks/use-toast';
 import { useSubscriptions } from '@/hooks/useSubscriptions';
-import { LayoutDashboard, Plus, Calendar, Smartphone } from 'lucide-react';
+import { LayoutDashboard, Plus, Calendar } from 'lucide-react';
 import { Dashboard } from '@/components/Dashboard';
 import AddSubscriptionForm from '@/components/AddSubscriptionForm';
 import { CalendarView } from '@/components/CalendarView';
 import { EditSubscriptionForm } from '@/components/EditSubscriptionForm';
+import { Header } from '@/components/Header';
 import { Subscription, SubscriptionFormData } from '@/types/subscription';
 
 type FilterType = 'all' | 'active' | 'expiring-soon' | 'expired';
@@ -110,33 +111,8 @@ const Index = () => {
 
   return (
     <div className="min-h-screen bg-background">
+      <Header />
       <div className="container mx-auto max-w-4xl p-4">
-        {/* App Header */}
-        <div className="mb-6 text-center">
-          <div className="flex items-center justify-center gap-3 mb-4">
-            <div className="w-12 h-12 bg-gradient-primary rounded-full flex items-center justify-center">
-              <span className="text-white font-bold text-xl">ST</span>
-            </div>
-            <h1 className="text-3xl font-bold bg-gradient-primary bg-clip-text text-transparent">
-              SubTrackr
-            </h1>
-          </div>
-          <p className="text-muted-foreground">Track your recurring subscriptions</p>
-        </div>
-
-        {/* PWA Install Hint */}
-        <div className="mb-6 p-4 rounded-xl bg-gradient-primary text-white shadow-glow">
-          <div className="flex items-center gap-3">
-            <Smartphone className="h-5 w-5" />
-            <div>
-              <h3 className="font-semibold">Install on Your Phone</h3>
-              <p className="text-sm opacity-90">
-                Add SubTrackr to your home screen for quick access
-              </p>
-            </div>
-          </div>
-        </div>
-
         {/* Navigation Tabs */}
         <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
           <TabsList className="grid w-full grid-cols-3 mb-6">
